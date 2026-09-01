@@ -1042,7 +1042,7 @@ public class ApiConfig {
         initLiveSettings();
         Hawk.put(HawkConfig.LIVE_GROUP_LIST, new JsonArray());
         Hawk.put(HawkConfig.EPG_URL, extractLiveTextEpg(content));
-        Hawk.put(HawkConfig.LIVE_PLAY_TYPE, Hawk.get(HawkConfig.PLAY_TYPE, 0));
+        Hawk.put(HawkConfig.LIVE_PLAY_TYPE, Hawk.get(HawkConfig.PLAY_TYPE, 2));
         Hawk.put(HawkConfig.LIVE_WEB_HEADER, null);
         JsonArray livesArray = TxtSubscribe.parseToJsonArray(content);
         loadLives(livesArray);
@@ -1130,7 +1130,7 @@ public class ApiConfig {
         ArrayList<ArrayList<String>> itemsArrayList = new ArrayList<>();
         ArrayList<String> sourceItems = new ArrayList<>();
         ArrayList<String> scaleItems = new ArrayList<>(Arrays.asList("默认", "16:9", "4:3", "填充", "原始", "裁剪"));
-        ArrayList<String> playerDecoderItems = new ArrayList<>(Arrays.asList("系统", "ijk硬解", "ijk软解", "exo"));
+        ArrayList<String> playerDecoderItems = new ArrayList<>(Arrays.asList("ijk硬解", "ijk软解", "exo"));
         ArrayList<String> timeoutItems = new ArrayList<>(Arrays.asList("5s", "10s", "15s", "20s", "25s", "30s"));
         ArrayList<String> personalSettingItems = new ArrayList<>(Arrays.asList("显示时间", "显示网速", "换台反转", "跨选分类"));
         ArrayList<String> yumItems = new ArrayList<>();
@@ -1398,7 +1398,7 @@ public class ApiConfig {
                 String livePlayType =livesOBJ.get("playerType").getAsString();
                 Hawk.put(HawkConfig.LIVE_PLAY_TYPE,livePlayType);
             }else {
-                Hawk.put(HawkConfig.LIVE_PLAY_TYPE,Hawk.get(HawkConfig.PLAY_TYPE, 0));
+                Hawk.put(HawkConfig.LIVE_PLAY_TYPE,Hawk.get(HawkConfig.PLAY_TYPE, 2));
             }
             //设置UA
             if(livesOBJ.has("timeout")){

@@ -90,6 +90,8 @@ public class FastSearchActivity extends BaseActivity {
     private boolean isFilterMode = false;
     private String searchFilterKey = "";    // 过滤的key
     private HashMap<String, ArrayList<Movie.Video>> resultVods; // 搜索结果
+    private final List<Movie.Video> highMatchVods = new ArrayList<>();
+    private boolean showHighMatchResults = false;
     private final List<String> quickSearchWord = new ArrayList<>();
     private final Set<String> wordListNames = new HashSet<>();
     private int wordListVersion = 0;
@@ -193,6 +195,7 @@ public class FastSearchActivity extends BaseActivity {
                     bundle.putString("sourceKey", video.sourceKey);
                     bundle.putString("title", video.name);
                     bundle.putString("picture", video.pic);
+                    putDetailFallbackCandidates(bundle, video);
                     jumpActivity(DetailActivity.class, bundle);
                 }
             }
@@ -229,6 +232,7 @@ public class FastSearchActivity extends BaseActivity {
                     bundle.putString("sourceKey", video.sourceKey);
                     bundle.putString("title", video.name);
                     bundle.putString("picture", video.pic);
+                    putDetailFallbackCandidates(bundle, video);
                     jumpActivity(DetailActivity.class, bundle);
                 }
             }
@@ -475,6 +479,8 @@ public class FastSearchActivity extends BaseActivity {
         selectedWordName = "";
         filterResult(SEARCH_ALL_NAME);
         resultVods.clear();
+        highMatchVods.clear();
+        showHighMatchResults = false;
         searchFilterKey = "";
         isFilterMode = false;
         spNames.clear();
@@ -501,6 +507,7 @@ public class FastSearchActivity extends BaseActivity {
     private final AtomicInteger timedOutSearchCount = new AtomicInteger(0);
     private String currentSearchToken = "";
     private boolean searchPaused = false;
+    private final List<Movie.Video> detailFallbackSearchResults = new ArrayList<>();
 
     private void searchResult() {
         try {
@@ -528,6 +535,7 @@ public class FastSearchActivity extends BaseActivity {
             searchPaused = false;
             totalSearchCount.set(0);
             timedOutSearchCount.set(0);
+            detailFallbackSearchResults.clear();
             updateSearchStatus();
         }
         List<SourceBean> searchRequestList = new ArrayList<>();
@@ -610,6 +618,34 @@ public class FastSearchActivity extends BaseActivity {
         return matchNum == arr.length;
     }
 
+    private boolean isExactSearchResult(Movie.Video video) {
+        return video != null && !TextUtils.isEmpty(video.name) && !TextUtils.isEmpty(searchTitle)
+                && TextUtils.equals(video.name.trim(), searchTitle.trim());
+    }
+
+    private boolean isHighMatchSearchResult(Movie.Video video) {
+        return video != null && !TextUtils.isEmpty(video.name) && !TextUtils.isEmpty(searchTitle)
+                && video.name.replaceAll("\\s+", "").startsWith(searchTitle.replaceAll("\\s+", ""));
+    }
+
+    private boolean shouldShowHighMatchResults() {
+        if (showHighMatchResults || searchAdapter.getData().size() > 0) return false;
+        int total = totalSearchCount.get();
+        int threshold = Math.min(SEARCH_THREAD_COUNT, total);
+        return threshold > 0 && total - allRunCount.get() >= threshold;
+    }
+
+    private void addMainSearchResults(List<Movie.Video> data) {
+        if (data == null || data.isEmpty()) return;
+        if (searchAdapter.getData().size() > 0) {
+            searchAdapter.addData(data);
+        } else {
+            showSuccess();
+            if (!isFilterMode) mGridView.setVisibility(View.VISIBLE);
+            searchAdapter.setNewData(data);
+        }
+    }
+
     private void searchData(AbsXml absXml) {
         if (!isCurrentSearchResult(absXml)) {
             return;
@@ -620,32 +656,65 @@ public class FastSearchActivity extends BaseActivity {
         }
         releaseSearchSlotAndStartNext(sourceKey, absXml.searchToken);
         String lastSourceKey = "";
+        List<Movie.Video> exactData = new ArrayList<>();
+        List<Movie.Video> highData = new ArrayList<>();
 
         if (absXml != null && absXml.movie != null && absXml.movie.videoList != null && absXml.movie.videoList.size() > 0) {
-            List<Movie.Video> data = new ArrayList<>();
             for (Movie.Video video : absXml.movie.videoList) {
                 if (!matchSearchResult(video.name, searchTitle)) continue;
-                data.add(video);
+                detailFallbackSearchResults.add(video);
                 if (!resultVods.containsKey(video.sourceKey)) {
                     resultVods.put(video.sourceKey, new ArrayList<Movie.Video>());
                 }
                 resultVods.get(video.sourceKey).add(video);
+                if (isHighMatchSearchResult(video)) {
+                    highMatchVods.add(video);
+                    highData.add(video);
+                }
+                if (isExactSearchResult(video)) {
+                    exactData.add(video);
+                }
                 if (!TextUtils.equals(video.sourceKey, lastSourceKey)) {
                     lastSourceKey = this.addWordAdapterIfNeed(video.sourceKey);
                 }
             }
+        }
 
-            if (searchAdapter.getData().size() > 0) {
-                searchAdapter.addData(data);
-            } else {
-                showSuccess();
-                if (!isFilterMode)
-                    mGridView.setVisibility(View.VISIBLE);
-                searchAdapter.setNewData(data);
-            }
+        if (showHighMatchResults) {
+            addMainSearchResults(highData);
+        } else if (!exactData.isEmpty()) {
+            addMainSearchResults(exactData);
+        } else if (shouldShowHighMatchResults()) {
+            showHighMatchResults = true;
+            addMainSearchResults(new ArrayList<>(highMatchVods));
         }
 
         finishSearchIfDone();
+    }
+
+    private void putDetailFallbackCandidates(Bundle bundle, Movie.Video selectedVideo) {
+        if (bundle == null || selectedVideo == null || TextUtils.isEmpty(selectedVideo.name)) {
+            return;
+        }
+        String title = selectedVideo.name.trim();
+        ArrayList<Movie.Video> candidates = new ArrayList<>();
+        Set<String> keys = new HashSet<>();
+        for (Movie.Video video : detailFallbackSearchResults) {
+            if (video == null || TextUtils.isEmpty(video.id)
+                    || !TextUtils.equals(title, video.name == null ? "" : video.name.trim())) {
+                continue;
+            }
+            String key = (video.sourceKey == null ? "" : video.sourceKey) + "|" + video.id;
+            if (keys.add(key)) {
+                candidates.add(video);
+                if (candidates.size() >= 20) {
+                    break;
+                }
+            }
+        }
+        if (!candidates.isEmpty()) {
+            bundle.putSerializable(DetailActivity.EXTRA_DETAIL_FALLBACK_CANDIDATES, candidates);
+        }
     }
 
     private void scheduleSearchAdvance(final String sourceKey, final String searchToken) {
@@ -876,7 +945,7 @@ public class FastSearchActivity extends BaseActivity {
         if (allRunCount.get() > 0) return;
         searchPaused = false;
         updateSearchStatus();
-        if (searchAdapter.getData().size() == 0) {
+        if (searchAdapter.getData().size() == 0 && resultVods.isEmpty()) {
             showEmpty();
         }
         cancel();
